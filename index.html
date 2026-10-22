@@ -260,7 +260,7 @@ const salvar = (chave) => {
      nada se a internet cair no meio;
    - sem SINC configurado (o arquivo que você abre no seu computador), tudo
      funciona exatamente como antes, só local. */
-const SINC = {"url": "https://script.google.com/macros/s/AKfycbxKVZAqQLZblKeni6YMamY56sAyKEcKf3DPWiNmP-9aZGqqBHwBF4dZDAgIQAcqWnTz3Q/exec", "segredo": "", "intervalo": 15};
+const SINC = {"url": "https://script.google.com/macros/s/AKfycbxKVZAqQLZblKeni6YMamY56sAyKEcKf3DPWiNmP-9aZGqqBHwBF4dZDAgIQAcqWnTz3Q/exec", "segredo": "INICIAR", "intervalo": 15};
 let fila = [];
 try{ fila = JSON.parse(localStorage.getItem(CHAVE_LS+"-fila")||"[]"); }catch(e){}
 const salvarFila = () => { try{ localStorage.setItem(CHAVE_LS+"-fila",
