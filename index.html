@@ -255,6 +255,7 @@ const salvar = (chave) => {
   try{ localStorage.setItem(CHAVE_LS, JSON.stringify(decisoes)); }catch(e){}
   if(!SINC || !chave) return;
   const d=decisoes[chave];
+  recentes[chave]=Date.now();
   fila.push({chave, st:d?d.st:"pendente", por:d&&d.por||"",
              nota:d&&d.nota||"", ts:(d&&d.ts)||Date.now()});
   salvarFila(); enviar();
@@ -273,6 +274,7 @@ const salvar = (chave) => {
    - sem SINC configurado (o arquivo que você abre no seu computador), tudo
      funciona exatamente como antes, só local. */
 const SINC = {"url": "https://script.google.com/macros/s/AKfycbxKVZAqQLZblKeni6YMamY56sAyKEcKf3DPWiNmP-9aZGqqBHwBF4dZDAgIQAcqWnTz3Q/exec", "segredo": "INICIAR", "intervalo": 15};
+let recentes = {};   // chave -> quando esta pessoa mexeu nela
 let fila = [];
 try{ fila = JSON.parse(localStorage.getItem(CHAVE_LS+"-fila")||"[]"); }catch(e){}
 const salvarFila = () => { try{ localStorage.setItem(CHAVE_LS+"-fila",
@@ -348,7 +350,7 @@ async function resposta(r){
 let enviando=false;
 async function enviar(){
   if(!SINC || enviando || !fila.length) return;
-  enviando=true;
+  enviando=true; let erro=false;
   try{
     const lote=fila.slice(0,50);
     const r=await fetch(SINC.url,{method:"POST",
@@ -358,10 +360,13 @@ async function enviar(){
     fila=fila.slice(lote.length); salvarFila();
     aviso("salvo às "+hora(),"ok");
   }catch(e){
+    erro=true;
     aviso(fila.length+" por enviar — "+e.message,"erro");
   }finally{
     enviando=false;
-    if(fila.length) setTimeout(enviar,4000);
+    // deu certo e ainda há fila: manda o resto agora. Só espera quando
+    // falhou, para não martelar um servidor que está fora do ar.
+    if(fila.length) setTimeout(enviar, erro ? 4000 : 0);
   }
 }
 /* Traz o que as outras pessoas decidiram. Mescla pelo ts: o registro mais
@@ -373,14 +378,32 @@ async function puxar(primeira){
       (SINC.segredo?"&segredo="+encodeURIComponent(SINC.segredo):""),
       {method:"GET"});
     const j=await resposta(r);
-    let mudou=false;
-    for(const [k,v] of Object.entries(j.decisoes||{})){
+    /* A PLANILHA MANDA. O que está no navegador é cópia, e cópia que só
+       recebe não enxerga o que foi APAGADO lá: a chave simplesmente deixa de
+       vir, e a versão antiga continuava viva aqui. Era por isso que uma
+       marcação excluída na planilha reaparecia na aba normal e sumia na
+       anônima — a anônima não tinha cópia nenhuma.
+
+       Então o estado passa a ser o da planilha, inteiro, e não uma mescla.
+       Duas exceções, as duas necessárias com nove pessoas editando junto:
+       - o que ainda está na fila para enviar (feito offline, por exemplo);
+       - o que esta pessoa decidiu nos últimos 30 segundos, que pode não ter
+         entrado na leitura que acabou de chegar. */
+    const antes=JSON.stringify(decisoes);
+    const novo={};
+    for(const [k,v] of Object.entries(j.decisoes||{}))
+      novo[k]={st:v.st,por:v.por||"",nota:v.nota||"",ts:v.ts||0};
+    for(const r of fila)
+      novo[r.chave]={st:r.st,por:r.por||"",nota:r.nota||"",ts:r.ts};
+    const agora=Date.now();
+    for(const k of Object.keys(recentes)){
+      if(agora-recentes[k] > 30000){ delete recentes[k]; continue; }
       const meu=decisoes[k];
-      if(!meu || (v.ts||0) > (meu.ts||0)){
-        if(!meu || meu.st!==v.st || meu.por!==v.por) mudou=true;
-        decisoes[k]={st:v.st,por:v.por||"",nota:v.nota||"",ts:v.ts||0};
-      }
+      if(meu && (!novo[k] || (meu.ts||0) >= (novo[k].ts||0))) novo[k]=meu;
+      else if(!meu) delete novo[k];
     }
+    decisoes=novo;
+    const mudou=JSON.stringify(decisoes)!==antes;
     if(mudou || primeira){
       try{ localStorage.setItem(CHAVE_LS,JSON.stringify(decisoes)); }catch(e){}
       // não redesenha por cima de um painel aberto: a pessoa está no meio de
@@ -1333,6 +1356,13 @@ if(SINC){
   setInterval(()=>{ puxar(false); enviar(); },
               Math.max(5, SINC.intervalo||15)*1000);
   window.addEventListener("online", ()=>{ puxar(false); enviar(); });
+  /* Voltar para a aba é o momento em que a pessoa mais precisa do estado
+     fresco: ela acabou de olhar a planilha, ou de falar com alguém. O
+     navegador também atrasa os temporizadores de abas em segundo plano, então
+     sem isto uma aba esquecida volta desatualizada. */
+  document.addEventListener("visibilitychange",()=>{
+    if(!document.hidden){ puxar(false); enviar(); }});
+  window.addEventListener("focus",()=>{ puxar(false); enviar(); });
 }
 </script>
 </body>
