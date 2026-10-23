@@ -274,6 +274,7 @@ const salvar = (chave) => {
    - sem SINC configurado (o arquivo que você abre no seu computador), tudo
      funciona exatamente como antes, só local. */
 const SINC = {"url": "https://script.google.com/macros/s/AKfycbxKVZAqQLZblKeni6YMamY56sAyKEcKf3DPWiNmP-9aZGqqBHwBF4dZDAgIQAcqWnTz3Q/exec", "segredo": "INICIAR", "intervalo": 15};
+let abertos = {};    // grupo -> aberto/fechado, para o redesenho respeitar
 let recentes = {};   // chave -> quando esta pessoa mexeu nela
 let fila = [];
 try{ fila = JSON.parse(localStorage.getItem(CHAVE_LS+"-fila")||"[]"); }catch(e){}
@@ -1074,7 +1075,14 @@ function abaProva(){
   for(const k of ordem){
     const its=grupos[k];
     const kd=+k.split("|")[0], ktp=k.split("|")[1];
-    const g=el("details",{class:"grupo",open:its.length<=3?"":null});
+    /* Lembra quais grupos a pessoa abriu ou fechou. Sem isso, a cada leitura
+       da planilha os grupos voltavam ao padrão e fechavam na cara de quem
+       estava lendo. */
+    const kAberto=comp+"|"+ano+"|"+k;
+    const padrao=its.length<=3;
+    const g=el("details",{class:"grupo",
+      open:(kAberto in abertos ? abertos[kAberto] : padrao) ? "" : null});
+    g.addEventListener("toggle",()=>{ abertos[kAberto]=g.open; });
     // o que foi pedido para esta vaga, contra o que a prova entregou
     const ped=(DADOS.pedido||{})[comp+"|"+ano+"|"+k];
     const viv=its.filter(i=>dec(comp,ano,i.c).st!=="recusado");
@@ -1328,14 +1336,22 @@ $("#arqImport").addEventListener("change",ev=>{
 /* ------------------------------------------------------------------ desenho */
 const ABAS=[["prova","Prova do ano"],["distribuicao","Distribuição"],
             ["descritores","Descritores"],["escala","Progressão da escala"]];
-function desenhar(){
+/* Redesenhar é barato, mas rolar a página até o topo no meio da leitura não
+   é: com nove pessoas decidindo ao mesmo tempo, a tela se refaz sozinha a
+   cada 15 segundos, e quem estava no fim da lista era jogado para o começo.
+   Agora só vai ao topo quem TROCOU de ano, de componente ou de aba; qualquer
+   outro redesenho mantém a posição. */
+function navegar(mudanca){ mudanca(); desenhar(true); }
+function desenhar(irParaTopo){
+  const posicao=window.scrollY;
   const sc=$("#segComp"); sc.replaceChildren(...["LP","MT"].map(c=>
-    el("button",{"aria-pressed":comp===c,onclick:()=>{comp=c;desenhar();}},
+    el("button",{"aria-pressed":comp===c,
+      onclick:()=>navegar(()=>{comp=c;})},
       c==="LP"?"Língua Portuguesa":"Matemática")));
   const sa=$("#segAno"); sa.replaceChildren(...DADOS.anos.map(a=>
-    el("button",{"aria-pressed":ano===a,onclick:()=>{ano=a;desenhar();}},a)));
+    el("button",{"aria-pressed":ano===a,onclick:()=>navegar(()=>{ano=a;})},a)));
   $("#abas").replaceChildren(...ABAS.map(([k,r])=>
-    el("button",{"aria-selected":aba===k,onclick:()=>{aba=k;desenhar();}},r)));
+    el("button",{"aria-selected":aba===k,onclick:()=>navegar(()=>{aba=k;})},r)));
   let tot=0,fei=0;
   for(const c of ["LP","MT"]) for(const it of DADOS.itens[c]){
     tot++; if(dec(c,it.an,it.c).st!=="pendente") fei++;}
@@ -1343,7 +1359,8 @@ function desenhar(){
   const p=$("#palco");
   p.replaceChildren(aba==="prova"?abaProva():aba==="distribuicao"?
     abaDistribuicao():aba==="descritores"?abaDescritores():abaEscala());
-  window.scrollTo({top:0});
+  // restaura a posição; só sobe ao topo quando foi navegação
+  window.scrollTo({top: irParaTopo ? 0 : posicao});
 }
 desenhar();
 
